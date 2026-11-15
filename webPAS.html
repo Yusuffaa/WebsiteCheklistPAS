@@ -526,7 +526,45 @@ footer {
     </footer>
 
 
-<script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.3.0/firebase-app.js";
+
+import {
+    getAuth,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/13.3.0/firebase-auth.js";
+
+import {
+    getFirestore,
+    doc,
+    setDoc,
+    getDoc,
+    updateDoc
+} from "https://www.gstatic.com/firebasejs/13.3.0/firebase-firestore.js";
+
+
+// =================================
+// KONFIGURASI FIREBASE
+// =================================
+
+const firebaseConfig = {
+    apiKey: "AIzaSyBDV4opT2vMwKhTw2jVim0dV64Me3SeD2s",
+    authDomain: "checklist-pas-c6b29.firebaseapp.com",
+    projectId: "checklist-pas-c6b29",
+    storageBucket: "checklist-pas-c6b29.firebasestorage.app",
+    messagingSenderId: "736606416696",
+    appId: "1:736606416696:web:f534d4de7d115b7c3d1bcd",
+    measurementId: "G-JVNGS2650K"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
 
 // =================================
 // DATA PELAJARAN
@@ -589,43 +627,29 @@ let currentFilter = "all";
 
 
 // =================================
-// PENYIMPANAN AKUN
+// HELPER USERNAME
 // =================================
 
-function getAccounts() {
+// Username dipetakan menjadi email internal
+// agar tetap bisa menggunakan Firebase Authentication.
 
-    return JSON.parse(
-        localStorage.getItem("pas_accounts") || "{}"
-    );
-
-}
-
-function saveAccounts(accounts) {
-
-    localStorage.setItem(
-        "pas_accounts",
-        JSON.stringify(accounts)
-    );
-
+function usernameToEmail(username) {
+    return username + "@checklistpas.com";
 }
 
 
 // =================================
-// PESAN ERROR / SUKSES
+// PESAN
 // =================================
 
 function showMessage(text, type) {
-
     message.textContent = text;
     message.className = "message " + type;
-
 }
 
 function hideMessage() {
-
     message.textContent = "";
     message.className = "message";
-
 }
 
 
@@ -647,13 +671,11 @@ switchBtn.addEventListener("click", function() {
             "Daftar untuk membuat checklist pribadi";
 
         nameField.classList.remove("hidden");
-
         fullName.required = true;
 
         submitBtn.textContent = "DAFTAR";
 
         switchText.textContent = "Sudah punya akun?";
-
         switchBtn.textContent = "Login";
 
     } else {
@@ -663,13 +685,11 @@ switchBtn.addEventListener("click", function() {
             "Login untuk membuka Checklist PAS";
 
         nameField.classList.add("hidden");
-
         fullName.required = false;
 
         submitBtn.textContent = "LOGIN";
 
         switchText.textContent = "Belum punya akun?";
-
         switchBtn.textContent = "Daftar sekarang";
 
     }
@@ -678,10 +698,10 @@ switchBtn.addEventListener("click", function() {
 
 
 // =================================
-// REGISTER DAN LOGIN
+// REGISTER DAN LOGIN FIREBASE
 // =================================
 
-authForm.addEventListener("submit", function(e) {
+authForm.addEventListener("submit", async function(e) {
 
     e.preventDefault();
 
@@ -689,98 +709,118 @@ authForm.addEventListener("submit", function(e) {
     const password = passwordInput.value;
     const name = fullName.value.trim();
 
-    const accounts = getAccounts();
-
     if (!/^[a-z0-9_]{3,20}$/.test(username)) {
-
         showMessage(
             "Username harus 3-20 karakter (huruf, angka, underscore).",
             "error"
         );
-
         return;
-
     }
 
     if (password.length < 6) {
-
         showMessage(
             "Password minimal 6 karakter.",
             "error"
         );
-
         return;
-
     }
 
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Memproses...";
 
-    // REGISTER
+    try {
 
-    if (isRegister) {
+        const email = usernameToEmail(username);
 
-        if (name.length < 2) {
+        // REGISTER
+        if (isRegister) {
 
-            showMessage(
-                "Nama lengkap minimal 2 karakter.",
-                "error"
+            if (name.length < 2) {
+                showMessage(
+                    "Nama lengkap minimal 2 karakter.",
+                    "error"
+                );
+                return;
+            }
+
+            const credential =
+                await createUserWithEmailAndPassword(
+                    auth,
+                    email,
+                    password
+                );
+
+            // Membuat dokumen pengguna di Firestore
+            await setDoc(
+                doc(db, "users", credential.user.uid),
+                {
+                    username: username,
+                    name: name,
+                    tasks: {}
+                }
             );
 
+            // Keluar agar pengguna bisa login secara normal
+            await signOut(auth);
+
+            showMessage(
+                "Pendaftaran berhasil! Silakan login.",
+                "success"
+            );
+
+            authForm.reset();
+
             return;
+        }
+
+
+        // LOGIN
+        await signInWithEmailAndPassword(
+            auth,
+            email,
+            password
+        );
+
+    } catch (error) {
+
+        console.error(error);
+
+        let errorText = "Terjadi kesalahan. Coba lagi.";
+
+        switch (error.code) {
+
+            case "auth/email-already-in-use":
+                errorText = "Username sudah digunakan.";
+                break;
+
+            case "auth/invalid-credential":
+            case "auth/wrong-password":
+            case "auth/user-not-found":
+                errorText = "Username atau password salah.";
+                break;
+
+            case "auth/weak-password":
+                errorText = "Password terlalu lemah.";
+                break;
+
+            case "auth/network-request-failed":
+                errorText = "Periksa koneksi internet kamu.";
+                break;
+
+            case "auth/operation-not-allowed":
+                errorText = "Aktifkan Email/Password di Firebase Authentication.";
+                break;
 
         }
 
-        if (accounts[username]) {
+        showMessage(errorText, "error");
 
-            showMessage(
-                "Username sudah digunakan. Gunakan username lain.",
-                "error"
-            );
+    } finally {
 
-            return;
-
-        }
-
-        accounts[username] = {
-            name: name,
-            password: password,
-            tasks: {}
-        };
-
-        saveAccounts(accounts);
-
-        showMessage(
-            "Pendaftaran berhasil! Silakan login.",
-            "success"
-        );
-
-        authForm.reset();
-
-        return;
+        submitBtn.disabled = false;
+        submitBtn.textContent = isRegister ? "DAFTAR" : "LOGIN";
 
     }
-
-
-    // LOGIN
-
-    const account = accounts[username];
-
-    if (!account || account.password !== password) {
-
-        showMessage(
-            "Username atau password salah!",
-            "error"
-        );
-
-        return;
-
-    }
-
-    currentUser = username;
-
-    // Menyimpan sesi login
-    localStorage.setItem("pas_active_user", username);
-
-    openDashboard();
 
 });
 
@@ -789,19 +829,18 @@ authForm.addEventListener("submit", function(e) {
 // MEMBUKA DASHBOARD
 // =================================
 
-function openDashboard() {
+async function openDashboard() {
 
-    const accounts = getAccounts();
-
-    const account = accounts[currentUser];
-
-    if (!account) return;
+    if (!currentUser) return;
 
     authPage.classList.add("hidden");
     dashboard.classList.remove("hidden");
 
     document.getElementById("welcomeName").textContent =
-        "Halo, " + account.name + "!";
+        "Halo, " + currentUser.name + "!";
+
+    document.getElementById("motivationTitle").textContent =
+        "🔥 Semangat " + currentUser.name + "! 🔥";
 
     currentFilter = "all";
 
@@ -815,9 +854,7 @@ function openDashboard() {
     });
 
     renderTasks();
-
     updateProgress();
-
     applyFilter();
 
 }
@@ -829,20 +866,15 @@ function openDashboard() {
 
 function renderTasks() {
 
-    const accounts = getAccounts();
-
-    const account = accounts[currentUser];
-
     taskList.innerHTML = "";
 
     subjects.forEach((subject, index) => {
 
         const id = "subject_" + index;
 
-        const checked = account.tasks[id] === true;
+        const checked = currentUser.tasks[id] === true;
 
         const label = document.createElement("label");
-
         label.className = "task";
 
         if (checked) {
@@ -856,7 +888,6 @@ function renderTasks() {
         checkbox.dataset.id = id;
 
         const span = document.createElement("span");
-
         span.textContent = subject;
 
         label.appendChild(checkbox);
@@ -864,20 +895,40 @@ function renderTasks() {
 
         taskList.appendChild(label);
 
-        checkbox.addEventListener("change", function() {
+        checkbox.addEventListener("change", async function() {
 
-            const latestAccounts = getAccounts();
+            const previousValue = currentUser.tasks[id] === true;
 
-            latestAccounts[currentUser].tasks[id] =
-                this.checked;
-
-            saveAccounts(latestAccounts);
+            currentUser.tasks[id] = this.checked;
 
             updateTaskStyle(this);
-
             updateProgress();
-
             applyFilter();
+
+            try {
+
+                await updateDoc(
+                    doc(db, "users", currentUser.uid),
+                    {
+                        tasks: currentUser.tasks
+                    }
+                );
+
+            } catch (error) {
+
+                console.error(error);
+
+                // Kembalikan perubahan jika gagal disimpan
+                currentUser.tasks[id] = previousValue;
+                this.checked = previousValue;
+
+                updateTaskStyle(this);
+                updateProgress();
+                applyFilter();
+
+                alert("Checklist gagal disimpan. Periksa koneksi internet.");
+
+            }
 
         });
 
@@ -894,15 +945,7 @@ function updateTaskStyle(checkbox) {
 
     const label = checkbox.closest(".task");
 
-    if (checkbox.checked) {
-
-        label.classList.add("completed");
-
-    } else {
-
-        label.classList.remove("completed");
-
-    }
+    label.classList.toggle("completed", checkbox.checked);
 
 }
 
@@ -995,30 +1038,40 @@ function applyFilter() {
 
 
 // =================================
-// RESET CHECKLIST AKUN AKTIF
+// RESET CHECKLIST
 // =================================
 
 document.getElementById("resetBtn").addEventListener(
     "click",
-    function() {
+    async function() {
 
         const confirmReset = confirm(
             "Yakin ingin mereset checklist akun ini?"
         );
 
-        if (!confirmReset) return;
+        if (!confirmReset || !currentUser) return;
 
-        const accounts = getAccounts();
+        try {
 
-        accounts[currentUser].tasks = {};
+            currentUser.tasks = {};
 
-        saveAccounts(accounts);
+            await updateDoc(
+                doc(db, "users", currentUser.uid),
+                {
+                    tasks: {}
+                }
+            );
 
-        renderTasks();
+            renderTasks();
+            updateProgress();
+            applyFilter();
 
-        updateProgress();
+        } catch (error) {
 
-        applyFilter();
+            console.error(error);
+            alert("Gagal mereset checklist. Coba lagi.");
+
+        }
 
     }
 );
@@ -1030,7 +1083,7 @@ document.getElementById("resetBtn").addEventListener(
 
 document.getElementById("logoutBtn").addEventListener(
     "click",
-    function() {
+    async function() {
 
         const confirmLogout = confirm(
             "Yakin ingin logout?"
@@ -1038,60 +1091,77 @@ document.getElementById("logoutBtn").addEventListener(
 
         if (!confirmLogout) return;
 
-        localStorage.removeItem("pas_active_user");
-
-        currentUser = null;
-
-        dashboard.classList.add("hidden");
-        authPage.classList.remove("hidden");
-
-        authForm.reset();
-
-        hideMessage();
-
-        isRegister = false;
-
-        nameField.classList.add("hidden");
-        fullName.required = false;
-
-        authTitle.textContent = "Selamat Datang!";
-
-        authDescription.textContent =
-            "Login untuk membuka Checklist PAS";
-
-        submitBtn.textContent = "LOGIN";
-
-        switchText.textContent = "Belum punya akun?";
-
-        switchBtn.textContent = "Daftar sekarang";
+        try {
+            await signOut(auth);
+        } catch (error) {
+            console.error(error);
+            alert("Gagal logout.");
+        }
 
     }
 );
 
 
 // =================================
-// CEK LOGIN SAAT WEBSITE DIBUKA
+// CEK LOGIN FIREBASE
 // =================================
 
-function checkLogin() {
+onAuthStateChanged(auth, async function(user) {
 
-    const savedUser = localStorage.getItem("pas_active_user");
+    if (!user) {
 
-    const accounts = getAccounts();
+        currentUser = null;
 
-    if (savedUser && accounts[savedUser]) {
+        dashboard.classList.add("hidden");
+        authPage.classList.remove("hidden");
 
-        currentUser = savedUser;
+        return;
+    }
+
+    try {
+
+        const userDoc = await getDoc(
+            doc(db, "users", user.uid)
+        );
+
+        if (!userDoc.exists()) {
+
+            await signOut(auth);
+
+            showMessage(
+                "Data akun tidak ditemukan.",
+                "error"
+            );
+
+            return;
+        }
+
+        const userData = userDoc.data();
+
+        currentUser = {
+            uid: user.uid,
+            username: userData.username,
+            name: userData.name,
+            tasks: userData.tasks || {}
+        };
 
         openDashboard();
 
+    } catch (error) {
+
+        console.error(error);   
+
+        showMessage(
+            "Gagal mengambil data akun dari database.",
+            "error"
+        );
+
     }
 
-}
-
-checkLogin();
+});
 
 </script>
+
 
 </body>
 </html>
